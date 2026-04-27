@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ReservationStatus {
+  pending_group
+  confirmed
+}
+
+model Adventure {
+  id          String        @id @default(cuid())
+  name        String
+  destination String
+  start_date  DateTime
+  end_date    DateTime
+  min_people  Int
+  max_people  Int
+
+  pricings     Pricing[]
+  reservations Reservation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Pricing {
+  id              String   @id @default(cuid())
+  adventure_id    String
+  people_count    Int
+  price_per_person Int
+
+  adventure Adventure @relation(fields: [adventure_id], references: [id], onDelete: Cascade)
+
+  @@unique([adventure_id, people_count])
+}
+
+model Reservation {
+  id           String            @id @default(cuid())
+  adventure_id String
+  name         String
+  email        String
+  whatsapp     String
+  status       ReservationStatus @default(pending_group)
+  share_token  String            @unique
+
+  adventure Adventure @relation(fields: [adventure_id], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+}

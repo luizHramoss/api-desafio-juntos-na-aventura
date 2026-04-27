@@ -1,0 +1,10 @@
+# Dependencies
+node_modules/
+
+# Env (secrets — use .env.example como referência)
+.env
+.env.*
+!.env.example
+
+# Prisma (client fica em node_modules; só ignore artefatos locais se existirem)
+.prisma/

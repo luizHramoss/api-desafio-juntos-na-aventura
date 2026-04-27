@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: juntos
+    ports:
+      - "5432:5432"
+    volumes:
+      - juntos_pg:/var/lib/postgresql/data
+
+volumes:
+  juntos_pg:
