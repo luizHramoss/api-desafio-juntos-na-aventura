@@ -12,9 +12,6 @@
     "prisma:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed"
   },
-  "prisma": {
-    "seed": "ts-node --transpile-only -P prisma/tsconfig.json prisma/seed.ts"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/luizHramoss/api-desafio-juntos-na-aventura.git"
