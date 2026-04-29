@@ -1,6 +1,5 @@
 import { prisma } from "../prisma";
 import crypto from "crypto";
-import { getMinPricePerPerson } from "./pricing.service";
 
 function newToken() {
   // curto, url-safe; colisão protegida por unique + retry
@@ -13,47 +12,61 @@ export async function createReservation(input: {
   email: string;
   whatsapp: string;
 }) {
-  const adventure = await prisma.adventure.findUnique({ where: { id: input.adventure_id } });
-  if (!adventure) throw new Error("Adventure not found");
-
-  const currentCount = await prisma.reservation.count({ where: { adventure_id: adventure.id } });
-  if (currentCount >= adventure.max_people) throw new Error("Adventure is full");
-
-  const minPrice = await getMinPricePerPerson(adventure.id);
-  const deposit = Math.round(minPrice * 0.2); // 20% da menor tarifa (por pessoa)
-
-  // cria reserva + token único (retry simples)
-  for (let i = 0; i < 5; i++) {
+  // transação com retry para reduzir inconsistência sob concorrência
+  for (let i = 0; i < 5; i += 1) {
     const token = newToken();
     try {
-      const reservation = await prisma.reservation.create({
-        data: {
-          adventure_id: adventure.id,
-          name: input.name,
-          email: input.email,
-          whatsapp: input.whatsapp,
-          status: "pending_group",
-          share_token: token,
-        },
+      const out = await prisma.$transaction(async (tx) => {
+        const adventure = await tx.adventure.findUnique({
+          where: { id: input.adventure_id },
+        });
+        if (!adventure) throw new Error("Adventure not found");
+
+        const currentCount = await tx.reservation.count({
+          where: { adventure_id: adventure.id },
+        });
+        if (currentCount >= adventure.max_people) throw new Error("Adventure is full");
+
+        const minPricing = await tx.pricing.findFirst({
+          where: { adventure_id: adventure.id },
+          orderBy: { price_per_person: "asc" },
+        });
+        if (!minPricing) throw new Error("Pricing not found");
+
+        const reservation = await tx.reservation.create({
+          data: {
+            adventure_id: adventure.id,
+            name: input.name,
+            email: input.email,
+            whatsapp: input.whatsapp,
+            status: "pending_group",
+            share_token: token,
+          },
+        });
+
+        const afterCount = currentCount + 1;
+        if (afterCount >= adventure.min_people) {
+          await tx.reservation.updateMany({
+            where: { adventure_id: adventure.id, status: "pending_group" },
+            data: { status: "confirmed" },
+          });
+        }
+
+        return {
+          reservation,
+          deposit: Math.round(minPricing.price_per_person * 0.2),
+        };
       });
 
-      // auto-confirmar ao atingir min_people
-      const afterCount = currentCount + 1;
-      if (afterCount >= adventure.min_people) {
-        await prisma.reservation.updateMany({
-          where: { adventure_id: adventure.id, status: "pending_group" },
-          data: { status: "confirmed" },
-        });
-      }
-
       return {
-        reservation,
-        deposit,
-        share_url: `${process.env.PUBLIC_BASE_URL ?? "http://localhost:3000"}/join/${reservation.share_token}`,
+        reservation: out.reservation,
+        deposit: out.deposit,
+        share_url: `${process.env.PUBLIC_BASE_URL ?? "http://localhost:3000"}/join/${out.reservation.share_token}`,
+        shareUrl: `${process.env.PUBLIC_BASE_URL ?? "http://localhost:3000"}/join/${out.reservation.share_token}`,
       };
     } catch (e: any) {
-      // colisão de share_token => tenta de novo
-      if (String(e?.code) === "P2002") continue;
+      // colisão de token único/erro serializável => retry
+      if (String(e?.code) === "P2002" || String(e?.code) === "P2034") continue;
       throw e;
     }
   }

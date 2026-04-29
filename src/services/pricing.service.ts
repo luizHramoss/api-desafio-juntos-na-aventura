@@ -10,14 +10,18 @@ export async function getMinPricePerPerson(adventure_id: string) {
 }
 
 export async function getCurrentPricePerPerson(adventure_id: string, reservationsCount: number) {
-  // faixa: 1..4; se passar de 4, trava em 4 (mas max_people também deve impedir)
-  const peopleCount = Math.min(Math.max(reservationsCount, 1), 4);
-
-  const pricing = await prisma.pricing.findUnique({
-    where: { adventure_id_people_count: { adventure_id, people_count: peopleCount } },
+  const tiers = await prisma.pricing.findMany({
+    where: { adventure_id },
+    orderBy: { people_count: "asc" },
   });
-  if (!pricing) throw new Error("Pricing not found for people_count");
-  return pricing.price_per_person;
+  if (tiers.length === 0) throw new Error("Pricing not found");
+
+  // fallback seguro: abaixo da menor faixa usa a menor, acima da maior usa a maior
+  const normalizedPeopleCount = Math.max(reservationsCount, tiers[0].people_count);
+  const matchedTier = tiers.find((tier) => tier.people_count === normalizedPeopleCount);
+  if (matchedTier) return matchedTier.price_per_person;
+
+  return tiers[tiers.length - 1].price_per_person;
 }
 
 export async function getBestTierPeopleCount(adventure_id: string) {

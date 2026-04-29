@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createReservation } from "./reservations.service";
 
 const mocks = vi.hoisted(() => ({
+  transaction: vi.fn(),
   adventureFindUnique: vi.fn(),
   reservationCount: vi.fn(),
   reservationCreate: vi.fn(),
@@ -11,13 +12,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../prisma", () => ({
   prisma: {
-    adventure: { findUnique: mocks.adventureFindUnique },
-    reservation: {
-      count: mocks.reservationCount,
-      create: mocks.reservationCreate,
-      updateMany: mocks.reservationUpdateMany,
-    },
-    pricing: { findFirst: mocks.pricingFindFirst },
+    $transaction: mocks.transaction,
   },
 }));
 
@@ -31,6 +26,17 @@ describe("createReservation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.pricingFindFirst.mockResolvedValue({ price_per_person: 500 });
+    mocks.transaction.mockImplementation(async (cb: any) =>
+      cb({
+        adventure: { findUnique: mocks.adventureFindUnique },
+        reservation: {
+          count: mocks.reservationCount,
+          create: mocks.reservationCreate,
+          updateMany: mocks.reservationUpdateMany,
+        },
+        pricing: { findFirst: mocks.pricingFindFirst },
+      })
+    );
   });
 
   it("lança se aventura não existir", async () => {

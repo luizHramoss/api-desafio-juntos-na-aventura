@@ -2,27 +2,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 
 const mocks = vi.hoisted(() => ({
+  transaction: vi.fn(),
   adventureFindUnique: vi.fn(),
   reservationCount: vi.fn(),
   reservationCreate: vi.fn(),
   reservationUpdateMany: vi.fn(),
   reservationFindUnique: vi.fn(),
   pricingFindFirst: vi.fn(),
-  pricingFindUnique: vi.fn(),
+  pricingFindMany: vi.fn(),
 }));
 
 vi.mock("./prisma", () => ({
   prisma: {
+    $transaction: mocks.transaction,
     adventure: { findUnique: mocks.adventureFindUnique },
     reservation: {
       count: mocks.reservationCount,
-      create: mocks.reservationCreate,
-      updateMany: mocks.reservationUpdateMany,
       findUnique: mocks.reservationFindUnique,
     },
     pricing: {
       findFirst: mocks.pricingFindFirst,
-      findUnique: mocks.pricingFindUnique,
+      findMany: mocks.pricingFindMany,
     },
   },
 }));
@@ -33,7 +33,23 @@ describe("HTTP", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.pricingFindFirst.mockResolvedValue({ price_per_person: 1000, people_count: 4 });
-    mocks.pricingFindUnique.mockResolvedValue({ price_per_person: 900 });
+    mocks.pricingFindMany.mockResolvedValue([
+      { people_count: 1, price_per_person: 1200 },
+      { people_count: 2, price_per_person: 900 },
+      { people_count: 3, price_per_person: 750 },
+      { people_count: 4, price_per_person: 650 },
+    ]);
+    mocks.transaction.mockImplementation(async (cb: any) =>
+      cb({
+        adventure: { findUnique: mocks.adventureFindUnique },
+        reservation: {
+          count: mocks.reservationCount,
+          create: mocks.reservationCreate,
+          updateMany: mocks.reservationUpdateMany,
+        },
+        pricing: { findFirst: mocks.pricingFindFirst },
+      })
+    );
   });
 
   it("GET /health", async () => {
@@ -145,5 +161,75 @@ describe("HTTP", () => {
     expect(res.body.message).toMatch(/Faltam 1 pessoa/);
     expect(res.body.statusNow).toBe("pending_group");
     expect(res.body.reservationsCount).toBe(2);
+    expect(res.body.remainingSeats).toBe(2);
+    expect(res.body.minPricePerPerson).toBe(650);
+  });
+
+  it("GET /public/:token mensagem de grupo confirmado", async () => {
+    mocks.reservationFindUnique.mockResolvedValue({
+      adventure: {
+        id: "adv1",
+        name: "Trip",
+        destination: "MG",
+        start_date: new Date("2026-06-01"),
+        end_date: new Date("2026-06-05"),
+        min_people: 3,
+        max_people: 6,
+        pricings: [
+          { people_count: 1, price_per_person: 1200 },
+          { people_count: 2, price_per_person: 900 },
+          { people_count: 3, price_per_person: 800 },
+          { people_count: 5, price_per_person: 700 },
+        ],
+      },
+    });
+    mocks.pricingFindMany.mockResolvedValue([
+      { people_count: 1, price_per_person: 1200 },
+      { people_count: 2, price_per_person: 900 },
+      { people_count: 3, price_per_person: 800 },
+      { people_count: 5, price_per_person: 700 },
+    ]);
+    mocks.pricingFindFirst.mockResolvedValue({ price_per_person: 700, people_count: 5 });
+    mocks.reservationCount.mockResolvedValue(3);
+
+    const res = await request(app).get("/public/tok123");
+    expect(res.status).toBe(200);
+    expect(res.body.statusNow).toBe("confirmed");
+    expect(res.body.bestPriceReached).toBe(false);
+    expect(res.body.message).toMatch(/Saída confirmada/);
+  });
+
+  it("GET /public/:token mensagem de tarifa mínima atingida", async () => {
+    mocks.reservationFindUnique.mockResolvedValue({
+      adventure: {
+        id: "adv1",
+        name: "Trip",
+        destination: "MG",
+        start_date: new Date("2026-06-01"),
+        end_date: new Date("2026-06-05"),
+        min_people: 3,
+        max_people: 6,
+        pricings: [
+          { people_count: 1, price_per_person: 1200 },
+          { people_count: 2, price_per_person: 900 },
+          { people_count: 3, price_per_person: 800 },
+          { people_count: 5, price_per_person: 700 },
+        ],
+      },
+    });
+    mocks.pricingFindMany.mockResolvedValue([
+      { people_count: 1, price_per_person: 1200 },
+      { people_count: 2, price_per_person: 900 },
+      { people_count: 3, price_per_person: 800 },
+      { people_count: 5, price_per_person: 700 },
+    ]);
+    mocks.pricingFindFirst.mockResolvedValue({ price_per_person: 700, people_count: 5 });
+    mocks.reservationCount.mockResolvedValue(5);
+
+    const res = await request(app).get("/public/tok123");
+    expect(res.status).toBe(200);
+    expect(res.body.statusNow).toBe("confirmed");
+    expect(res.body.bestPriceReached).toBe(true);
+    expect(res.body.message).toMatch(/Tarifa mínima atingida/);
   });
 });
