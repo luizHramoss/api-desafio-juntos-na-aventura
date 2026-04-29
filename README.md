@@ -2,10 +2,6 @@
 
 ### Requisitos
 - Node 20+
-- Docker (opcional, para Postgres)
-
-### Subir Postgres (Docker)
-docker compose up -d
 
 ### Backend
 cd backend
